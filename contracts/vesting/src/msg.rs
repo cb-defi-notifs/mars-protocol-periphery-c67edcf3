@@ -1,8 +1,5 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::Uint128;
-
-/// Denomination of the token to be vested
-pub const VEST_DENOM: &str = "umars";
+use cosmwasm_std::{Addr, Api, StdResult, Uint128};
 
 #[cw_serde]
 pub struct Schedule {
@@ -16,15 +13,51 @@ pub struct Schedule {
 }
 
 #[cw_serde]
-pub struct InstantiateMsg {
+pub struct Position {
+    /// Total amount of MARS allocated
+    pub total: Uint128,
+    /// Amount of MARS already withdrawn
+    pub withdrawn: Uint128,
+    /// The user's vesting schedule
+    pub vest_schedule: Schedule,
+}
+
+#[cw_serde]
+pub struct Config<T> {
     /// The contract's owner
-    pub owner: String,
+    pub owner: T,
+    /// Denomination of the token to be vested
+    pub denom: String,
     /// Schedule for token unlocking; this schedule is the same for all users
     pub unlock_schedule: Schedule,
 }
 
+impl Config<String> {
+    pub fn check(self, api: &dyn Api) -> StdResult<Config<Addr>> {
+        Ok(Config {
+            owner: api.addr_validate(&self.owner)?,
+            denom: self.denom,
+            unlock_schedule: self.unlock_schedule,
+        })
+    }
+}
+
+impl From<Config<Addr>> for Config<String> {
+    fn from(cfg: Config<Addr>) -> Self {
+        Config {
+            owner: cfg.owner.into(),
+            denom: cfg.denom,
+            unlock_schedule: cfg.unlock_schedule,
+        }
+    }
+}
+
 #[cw_serde]
 pub enum ExecuteMsg {
+    /// Update the contract's configurations
+    UpdateConfig {
+        new_cfg: Config<String>,
+    },
     /// Create a new vesting position for a user
     CreatePosition {
         user: String,
@@ -36,15 +69,13 @@ pub enum ExecuteMsg {
     },
     /// Withdraw vested and unlocked MARS tokens
     Withdraw {},
-    /// Transfer the contract's ownership to another account
-    TransferOwnership(String),
 }
 
 #[cw_serde]
 #[derive(QueryResponses)]
 pub enum QueryMsg {
     /// The contract's configurations
-    #[returns(ConfigResponse)]
+    #[returns(Config<String>)]
     Config {},
     /// Amount of MARS tokens of a vesting recipient current locked in the contract
     #[returns(VotingPowerResponse)]
@@ -76,8 +107,6 @@ pub enum QueryMsg {
     },
 }
 
-pub type ConfigResponse = InstantiateMsg;
-
 #[cw_serde]
 pub struct VotingPowerResponse {
     /// Address of the user
@@ -103,4 +132,30 @@ pub struct PositionResponse {
     pub withdrawable: Uint128,
     /// This vesting position's vesting schedule
     pub vest_schedule: Schedule,
+}
+
+#[cw_serde]
+pub enum MigrateMsg {
+    V1_0_0ToV1_1_0 {},
+    V1_1_0ToV1_1_1(V1_1_1Updates),
+}
+
+#[cw_serde]
+pub struct V1_1_1Updates {
+    /// Array of positions for alteration
+    pub position_alterations: Vec<PositionAlteration>,
+    /// Total amount of MARS to be reclaimed
+    pub total_reclaim: Uint128,
+}
+
+#[cw_serde]
+pub struct PositionAlteration {
+    /// Address of user to alter
+    pub addr: Addr,
+    /// Total amount of MARS allocated previously
+    pub total_old: Uint128,
+    /// Total amount of MARS allocated now
+    pub total_new: Uint128,
+    /// Total amount of MARS to be reclaimed
+    pub reclaim: Uint128,
 }
